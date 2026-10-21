@@ -3,6 +3,9 @@ const input = document.getElementById("user-input");
 const chatMessages = document.getElementById("chat-messages");
 const sendButton = form.querySelector("button");
 
+// このブラウザの会話履歴
+let history = [];
+
 function addMessage(text, role) {
   const message = document.createElement("div");
 
@@ -22,14 +25,19 @@ form.addEventListener("submit", async function (event) {
     return;
   }
 
+  // Python側の入力上限に合わせる
+  if (text.length > 2000) {
+    alert("質問は2000文字以内で入力してください。");
+    return;
+  }
+
   addMessage(text, "user");
   input.value = "";
 
   sendButton.disabled = true;
-  sendButton.textContent = "送信中…";
+  sendButton.textContent = "考え中…";
 
   try {
-    // PythonのAPIへ質問を送る
     const response = await fetch("/api/chat", {
       method: "POST",
       headers: {
@@ -37,6 +45,7 @@ form.addEventListener("submit", async function (event) {
       },
       body: JSON.stringify({
         message: text,
+        history: history,
       }),
     });
 
@@ -44,16 +53,30 @@ form.addEventListener("submit", async function (event) {
       throw new Error(`通信エラー: ${response.status}`);
     }
 
-    // Pythonから返ってきたJSONを取り出す
     const data = await response.json();
 
     addMessage(data.reply, "assistant");
+
+    // 成功したやり取りを履歴に保存する
+    history.push(
+      { role: "user", content: text },
+      { role: "assistant", content: data.reply }
+    );
+
+    // 直近6往復だけを残す
+    history = history.slice(-12);
   } catch (error) {
     console.error(error);
+
     addMessage(
-      "送信できませんでした。サーバーの状態を確認して、もう一度入力してください。",
+      "送信できませんでした。この質問は会話履歴に保存されていません。もう一度入力してください。",
       "assistant"
     );
+
+    // 再送しやすいように、入力欄へ戻す
+    if (input.value === "") {
+      input.value = text;
+    }
   } finally {
     sendButton.disabled = false;
     sendButton.textContent = "送信";
