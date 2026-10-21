@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <title>MathMate</title>
+
+  <link rel="stylesheet" href="style.css">
+  <script src="app.js" defer></script>
+</head>
+
+<body>
+  <main class="chat-container">
+    <header>
+      <h1>MathMate</h1>
+      <p>ヒントをもとに、一緒に数学を考えよう。</p>
+    </header>
+
+    <section id="chat-messages" aria-label="会話履歴" aria-live="polite">
+      <div class="message assistant">
+        数学の問題や、どこまで考えたかを教えてください。
+      </div>
+    </section>
+
+    <form id="chat-form">
+      <label for="user-input">質問・考えたこと</label>
+
+      <textarea
+        id="user-input"
+        placeholder="例：2x + 3 = 11 の解き方がわかりません"
+        rows="3"
+        required
+      ></textarea>
+
+      <button type="submit">送信</button>
+    </form>
+  </main>
+</body>
+</html>
