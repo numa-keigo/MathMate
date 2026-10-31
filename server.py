@@ -25,6 +25,8 @@ BASE_DIR = Path(__file__).resolve().parent
 STATIC_DIR = BASE_DIR / "static"
 MODEL_ID = "Qwen/Qwen3-8B"
 
+#ここがプロンプト、のちにプロンプトエンジニアリングでどうにかしたい
+
 SYSTEM_PROMPT = """
 あなたは、中学生の数学の学習を支援する先生です。
 ・親しみやすく、わかりやすい日本語を使う。
