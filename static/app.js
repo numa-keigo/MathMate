@@ -45,7 +45,7 @@ form.addEventListener("submit", async function (event) {
       },
       body: JSON.stringify({
         message: text,
-        history: history,
+        history: history.slice(-12),
       }),
     });
 
