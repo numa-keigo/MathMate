@@ -16,7 +16,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
-
+#qwenにした
 STATIC_DIR = BASE_DIR / "static"
 MODEL_ID = "Qwen/Qwen3-14B"
 
