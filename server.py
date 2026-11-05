@@ -18,7 +18,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 
 
 STATIC_DIR = BASE_DIR / "static"
-MODEL_ID = "Qwen/Qwen3-14B"
+MODEL_ID = "Qwen/Qwen3-8B"
 
 SYSTEM_PROMPT = """
 あなたは、中学生の数学学習を支援する先生「MathMate」です。
