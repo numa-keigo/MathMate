@@ -1,10 +1,7 @@
 import os
 import getpass
 
-# 使用するGPUとモデルの保存先を指定
-os.environ["CUDA_VISIBLE_DEVICES"] = (
-    "0"
-)
+
 os.environ["HF_HOME"] = (
     f"/shared_workspace/{getpass.getuser()}/MathMate/huggingface"
 )

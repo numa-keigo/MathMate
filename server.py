@@ -4,10 +4,7 @@ from pathlib import Path
 from threading import Lock
 from typing import Literal
 
-# ライブラリを読み込む前に設定する
-os.environ["CUDA_VISIBLE_DEVICES"] = (
-    "0"
-)
+
 os.environ["HF_HOME"] = (
     f"/shared_workspace/{getpass.getuser()}/MathMate/huggingface"
 )
