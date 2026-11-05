@@ -1,13 +1,12 @@
-import os
-import getpass
 from pathlib import Path
 from threading import Lock
 from typing import Literal
+
 from dotenv import load_dotenv
 
+# torchやtransformersを読み込む前に環境変数を設定する
 BASE_DIR = Path(__file__).resolve().parent
 load_dotenv(BASE_DIR / ".env")
-
 
 import torch
 import uvicorn
@@ -18,11 +17,8 @@ from pydantic import BaseModel, Field
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 
-BASE_DIR = Path(__file__).resolve().parent
 STATIC_DIR = BASE_DIR / "static"
-MODEL_ID = "Qwen/Qwen3-8B"
-
-#ここがプロンプト、のちにプロンプトエンジニアリングでどうにかしたい
+MODEL_ID = "Qwen/Qwen3-14B"
 
 SYSTEM_PROMPT = """
 あなたは、中学生の数学学習を支援する先生「MathMate」です。
@@ -57,18 +53,6 @@ SYSTEM_PROMPT = """
   具体的な質問にする。
 ・正解した場合は、正解であることと、その理由を短く伝える。
 ・解決したときや会話を終えるときは、無理に質問を付けない。
-
-【応答例】
-生徒：1+5がわかりません
-先生：5個あるところに、もう1個追加することだよ。
-      5から1つ先に数えると、いくつになるかな？
-
-生徒：6
-先生：正解！5に1を足すと6になるね。
-
-生徒：2x+3=11で、2x=14になりました
-先生：左辺の+3をなくすには、両辺から3を引こう。
-      右辺の11からも3を引くと、いくつになるかな？
 """.strip()
 
 
@@ -95,12 +79,13 @@ def create_app(tokenizer, model):
 
     @app.post("/api/chat")
     def chat(request: ChatRequest):
-        # 最初にAIへの指示を入れる
+        print("チャットに送信", flush=True)
+        # システムプロンプトを追加する
         messages = [
             {"role": "system", "content": SYSTEM_PROMPT},
         ]
 
-        # これまでの会話を追加する
+        # ブラウザから受け取った会話履歴を追加する
         messages.extend(
             {"role": item.role, "content": item.content}
             for item in request.history
@@ -112,42 +97,78 @@ def create_app(tokenizer, model):
         )
 
         with generation_lock:
-            # 会話全体をモデル用の形式に整える
+            # thinkingモードで、会話をモデル用の形式に整える
             text = tokenizer.apply_chat_template(
                 messages,
                 tokenize=False,
                 add_generation_prompt=True,
-                enable_thinking=False,
+                enable_thinking=True,
             )
 
-            # 文章をトークンIDに変換し、GPUへ送る
+            # トークンIDに変換してGPUへ送る
             inputs = tokenizer(
                 text,
                 return_tensors="pt",
+                add_special_tokens=False,
             ).to("cuda:0")
 
             # 回答を生成する
+            # max_new_tokensには思考部分も含まれる
+
+            print("回答の生成を開始", flush=True)
+
             with torch.inference_mode():
                 outputs = model.generate(
                     **inputs,
-                    max_new_tokens=384,
+                    max_new_tokens=4096,
                     do_sample=True,
-                    temperature=0.7,
-                    top_p=0.8,
+                    temperature=0.6,
+                    top_p=0.95,
                     top_k=20,
                     pad_token_id=tokenizer.eos_token_id,
                 )
+            print("回答の生成が完了", flush=True)
 
-            # 入力部分を除き、生成された部分だけ取り出す
+            # 入力を除き、生成された部分だけを取り出す
             generated_tokens = outputs[
                 0, inputs["input_ids"].shape[1]:
+            ].tolist()
+
+            # 思考の終了位置を探す
+            think_end_id = tokenizer.convert_tokens_to_ids(
+                "</think>"
+            )
+
+            end_positions = [
+                i
+                for i, token_id in enumerate(generated_tokens)
+                if token_id == think_end_id
             ]
 
-            answer = tokenizer.decode(
-                generated_tokens,
-                skip_special_tokens=True,
-            ).strip()
+            if end_positions:
+                # 最後の </think> より後だけを取り出す
+                answer_tokens = generated_tokens[
+                    end_positions[-1] + 1:
+                ]
 
+                answer = tokenizer.decode(
+                    answer_tokens,
+                    skip_special_tokens=True,
+                ).strip()
+
+                if not answer:
+                    answer = (
+                        "回答を完成できませんでした。"
+                        "もう一度送信してください。"
+                    )
+            else:
+                # 思考途中で生成が終了した場合は表示しない
+                answer = (
+                    "回答を完成できませんでした。"
+                    "もう一度送信してください。"
+                )
+
+        # 最終回答だけをブラウザへ返す
         return {"reply": answer}
 
     # トップページを返す
@@ -166,7 +187,7 @@ def create_app(tokenizer, model):
 
 
 def main():
-    # モデルは起動時に一度だけ読み込む
+    # モデルは起動時に1回だけ読み込む
     print("モデルを読み込み中...", flush=True)
 
     tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
