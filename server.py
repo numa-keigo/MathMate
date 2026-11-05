@@ -3,11 +3,11 @@ import getpass
 from pathlib import Path
 from threading import Lock
 from typing import Literal
+from dotenv import load_dotenv
 
+BASE_DIR = Path(__file__).resolve().parent
+load_dotenv(BASE_DIR / ".env")
 
-os.environ["HF_HOME"] = (
-    f"/shared_workspace/{getpass.getuser()}/MathMate/huggingface"
-)
 
 import torch
 import uvicorn
