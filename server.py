@@ -4,21 +4,22 @@ from typing import Literal
 
 from dotenv import load_dotenv
 
-# torchやtransformersを読み込む前に環境変数を設定する
+# 環境変数を読み込む
 BASE_DIR = Path(__file__).resolve().parent
 load_dotenv(BASE_DIR / ".env")
 
-import torch
+import ollama
 import uvicorn
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
-from transformers import AutoModelForCausalLM, AutoTokenizer
 
 
 STATIC_DIR = BASE_DIR / "static"
-MODEL_ID = "Qwen/Qwen3-14B"
+
+# ollama list に表示されるモデル名を指定する
+MODEL_ID = "llama4:latest"
 
 SYSTEM_PROMPT = """
 あなたは、中学生の数学学習を支援する先生「MathMate」です。
@@ -71,112 +72,74 @@ class ChatRequest(BaseModel):
     )
 
 
-def create_app(tokenizer, model):
+def create_app():
     app = FastAPI()
 
-    # GPUでの生成処理が重ならないようにする
+    # 回答の生成が重ならないようにする
     generation_lock = Lock()
 
     @app.post("/api/chat")
     def chat(request: ChatRequest):
-        print("チャットに送信", flush=True)
-        # システムプロンプトを追加する
+        print("チャットを受信しました", flush=True)
+
+        # システムプロンプト
         messages = [
             {"role": "system", "content": SYSTEM_PROMPT},
         ]
 
-        # ブラウザから受け取った会話履歴を追加する
+        # ブラウザから受け取った会話履歴
         messages.extend(
             {"role": item.role, "content": item.content}
             for item in request.history
         )
 
-        # 今回の質問を追加する
+        # 今回の質問
         messages.append(
             {"role": "user", "content": request.message}
         )
 
         with generation_lock:
-            # thinkingモードで、会話をモデル用の形式に整える
-            text = tokenizer.apply_chat_template(
-                messages,
-                tokenize=False,
-                add_generation_prompt=True,
-                enable_thinking=True,
-            )
-
-            # トークンIDに変換してGPUへ送る
-            inputs = tokenizer(
-                text,
-                return_tensors="pt",
-                add_special_tokens=False,
-            ).to("cuda:0")
-
-            # 回答を生成する
-            # max_new_tokensには思考部分も含まれる
-
             print("回答の生成を開始", flush=True)
 
-            with torch.inference_mode():
-                outputs = model.generate(
-                    **inputs,
-                    max_new_tokens=4096,
-                    do_sample=True,
-                    temperature=0.6,
-                    top_p=0.95,
-                    top_k=20,
-                    pad_token_id=tokenizer.eos_token_id,
+            try:
+                response = ollama.chat(
+                    model=MODEL_ID,
+                    messages=messages,
+                    stream=False,
                 )
+
+                answer = response["message"]["content"].strip()
+
+            except Exception as error:
+                print(
+                    f"Ollamaとの通信・生成エラー: {error}",
+                    flush=True,
+                )
+                raise HTTPException(
+                    status_code=502,
+                    detail=(
+                        "Ollamaで回答を生成できませんでした。"
+                        "サーバーのログを確認してください。"
+                    ),
+                ) from error
+
+            if not answer:
+                raise HTTPException(
+                    status_code=502,
+                    detail="モデルから空の回答が返されました。",
+                )
+
             print("回答の生成が完了", flush=True)
 
-            # 入力を除き、生成された部分だけを取り出す
-            generated_tokens = outputs[
-                0, inputs["input_ids"].shape[1]:
-            ].tolist()
-
-            # 思考の終了位置を探す
-            think_end_id = tokenizer.convert_tokens_to_ids(
-                "</think>"
-            )
-
-            end_positions = [
-                i
-                for i, token_id in enumerate(generated_tokens)
-                if token_id == think_end_id
-            ]
-
-            if end_positions:
-                # 最後の </think> より後だけを取り出す
-                answer_tokens = generated_tokens[
-                    end_positions[-1] + 1:
-                ]
-
-                answer = tokenizer.decode(
-                    answer_tokens,
-                    skip_special_tokens=True,
-                ).strip()
-
-                if not answer:
-                    answer = (
-                        "回答を完成できませんでした。"
-                        "もう一度送信してください。"
-                    )
-            else:
-                # 思考途中で生成が終了した場合は表示しない
-                answer = (
-                    "回答を完成できませんでした。"
-                    "もう一度送信してください。"
-                )
-
-        # 最終回答だけをブラウザへ返す
+        # 会話履歴はサーバーのファイルには保存しない
         return {"reply": answer}
 
-    # トップページを返す
+    # トップページ
     @app.get("/")
     def index():
         return FileResponse(STATIC_DIR / "index.html")
 
-    # CSSとJavaScriptを配信する
+    # CSS・JavaScript
     app.mount(
         "/static",
         StaticFiles(directory=STATIC_DIR),
@@ -187,21 +150,8 @@ def create_app(tokenizer, model):
 
 
 def main():
-    # モデルは起動時に1回だけ読み込む
-    print("モデルを読み込み中...", flush=True)
-
-    tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
-
-    model = AutoModelForCausalLM.from_pretrained(
-        MODEL_ID,
-        dtype=torch.bfloat16,
-        device_map={"": 0},
-    )
-    model.eval()
-
-    print("モデルの読み込み完了！", flush=True)
-
-    app = create_app(tokenizer, model)
+    # モデルの読み込み・実行はOllamaが担当する
+    app = create_app()
 
     uvicorn.run(
         app,
